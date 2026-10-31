@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Internship from '../models/Internship.js';
 import Category from '../models/Category.js';
 
@@ -127,6 +128,13 @@ export const getInternships = async (req, res) => {
 // @access  Public
 export const getInternship = async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid internship ID',
+      });
+    }
+
     const internship = await Internship.findById(req.params.id)
       .populate('company')
       .populate('category');
@@ -152,6 +160,26 @@ export const getFeaturedInternships = async (req, res) => {
       .limit(6);
 
     res.status(200).json({ success: true, data: internships });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get internships posted by the authenticated employer
+// @route   GET /api/internships/mine
+// @access  Private (Employer)
+export const getMyInternships = async (req, res) => {
+  try {
+    const internships = await Internship.find({ postedBy: req.user._id })
+      .populate('company', 'name logo location')
+      .populate('category', 'name slug')
+      .sort('-createdAt');
+
+    res.status(200).json({
+      success: true,
+      count: internships.length,
+      data: internships,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -190,14 +218,35 @@ export const updateInternship = async (req, res) => {
     }
 
     // Make sure user is internship employer or admin
-    if (internship.postedBy.toString() !== req.user.id && req.user.role !== 'admin') {
-      return res.status(401).json({ success: false, message: 'Not authorized to update this internship' });
+    if (
+      req.user.role !== 'admin' &&
+      internship.postedBy?.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({ success: false, message: 'Not authorized to update this internship' });
     }
 
-    internship = await Internship.findByIdAndUpdate(req.params.id, req.body, {
+    const updates = { ...req.body };
+    delete updates.postedBy;
+    const previousCategoryId = internship.category?.toString();
+
+    internship = await Internship.findByIdAndUpdate(req.params.id, updates, {
       new: true,
       runValidators: true,
     });
+
+    const updatedCategoryId = internship.category?.toString();
+    if (previousCategoryId !== updatedCategoryId) {
+      if (previousCategoryId) {
+        await Category.findByIdAndUpdate(previousCategoryId, {
+          $inc: { roleCount: -1 },
+        });
+      }
+      if (updatedCategoryId) {
+        await Category.findByIdAndUpdate(updatedCategoryId, {
+          $inc: { roleCount: 1 },
+        });
+      }
+    }
 
     res.status(200).json({ success: true, data: internship });
   } catch (error) {
@@ -217,8 +266,11 @@ export const deleteInternship = async (req, res) => {
     }
 
     // Make sure user is internship employer or admin
-    if (internship.postedBy.toString() !== req.user.id && req.user.role !== 'admin') {
-      return res.status(401).json({ success: false, message: 'Not authorized to delete this internship' });
+    if (
+      req.user.role !== 'admin' &&
+      internship.postedBy?.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({ success: false, message: 'Not authorized to delete this internship' });
     }
 
     const categoryId = internship.category;

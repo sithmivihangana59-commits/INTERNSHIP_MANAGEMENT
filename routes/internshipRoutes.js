@@ -3,6 +3,7 @@ import {
   getInternships,
   getInternship,
   getFeaturedInternships,
+  getMyInternships,
   createInternship,
   updateInternship,
   deleteInternship,
@@ -10,6 +11,8 @@ import {
 import { protect, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
+
+router.get('/mine', protect, authorize('employer'), getMyInternships);
 
 router.route('/')
   .get(getInternships)
