@@ -80,7 +80,12 @@
                 <q-item
                   v-for="internship in data.internships"
                   :key="internship._id"
-                  class="q-px-none"
+                  class="q-px-none cursor-pointer"
+                  role="button"
+                  tabindex="0"
+                  @click="openInternshipDetails(internship)"
+                  @keydown.enter="openInternshipDetails(internship)"
+                  @keydown.space.prevent="openInternshipDetails(internship)"
                 >
                   <q-item-section avatar
                     ><q-icon name="work_outline" color="primary"
@@ -192,16 +197,12 @@
                   flat
                   dense
                   no-caps
-                  :color="
-                    hasApplicantCv(application) ? 'primary' : 'grey-6'
-                  "
+                  :color="hasApplicantCv(application) ? 'primary' : 'grey-6'"
                   icon="description"
                   :label="
                     hasApplicantCv(application) ? 'View CV' : 'CV not available'
                   "
-                  :disable="
-                    !hasApplicantCv(application)
-                  "
+                  :disable="!hasApplicantCv(application)"
                   @click="viewApplicantResume(application)"
                 />
                 <q-item-label
@@ -217,12 +218,141 @@
         </q-card-section>
       </q-card>
     </template>
+
+    <q-dialog v-model="showInternshipDetails">
+      <q-card v-if="selectedInternship" style="width: 600px; max-width: 95vw">
+        <q-card-section v-if="loadingInternshipDetails" class="text-center">
+          <q-spinner color="primary" size="36px" />
+          <div class="text-caption text-grey-6 q-mt-sm">
+            Loading internship details...
+          </div>
+        </q-card-section>
+        <template v-else>
+          <q-card-section>
+            <div class="text-h6 text-weight-bold text-navy">
+              {{ selectedInternship.title }}
+            </div>
+            <div class="text-body2 text-grey-7 q-mt-xs">
+              {{ selectedInternship.company?.name || 'Company unavailable' }}
+              <span class="q-mx-xs">·</span>
+              {{
+                selectedInternship.category?.name ||
+                'Specialization unavailable'
+              }}
+            </div>
+          </q-card-section>
+
+          <q-separator />
+
+          <q-card-section class="q-gutter-y-sm">
+            <div>
+              <strong>Location:</strong>
+              {{ selectedInternship.location || 'Not specified' }}
+            </div>
+            <div>
+              <strong>Work mode:</strong>
+              {{ selectedInternship.workMode || 'Not specified' }}
+            </div>
+            <div>
+              <strong>Duration:</strong>
+              {{ selectedInternship.duration || 'Not specified' }}
+            </div>
+            <div>
+              <strong>Stipend / Salary:</strong>
+              {{
+                selectedInternship.salary?.amount != null
+                  ? `${selectedInternship.salary.currency || 'LKR'} ${Number(selectedInternship.salary.amount).toLocaleString()} / ${selectedInternship.salary.period || 'month'}`
+                  : 'Not specified'
+              }}
+            </div>
+            <div>
+              <strong>Skills:</strong>
+              {{
+                selectedInternship.skills?.length
+                  ? selectedInternship.skills.join(', ')
+                  : 'Not specified'
+              }}
+            </div>
+            <div>
+              <strong>Description:</strong>
+              <div class="q-mt-xs">
+                {{ selectedInternship.description || 'Not specified' }}
+              </div>
+            </div>
+            <div v-if="selectedInternship.requirements?.length">
+              <strong>Requirements:</strong>
+              <ul class="q-mt-xs q-mb-none">
+                <li
+                  v-for="(
+                    requirement, index
+                  ) in selectedInternship.requirements"
+                  :key="`${index}-${requirement}`"
+                >
+                  {{ requirement }}
+                </li>
+              </ul>
+            </div>
+            <div v-if="selectedInternship.responsibilities?.length">
+              <strong>Responsibilities:</strong>
+              <ul class="q-mt-xs q-mb-none">
+                <li
+                  v-for="(
+                    responsibility, index
+                  ) in selectedInternship.responsibilities"
+                  :key="`${index}-${responsibility}`"
+                >
+                  {{ responsibility }}
+                </li>
+              </ul>
+            </div>
+            <div v-if="selectedInternship.applicationDeadline">
+              <strong>Application deadline:</strong>
+              {{ formatDate(selectedInternship.applicationDeadline) }}
+            </div>
+            <div>
+              <strong>Status:</strong>
+              {{ selectedInternship.isActive ? 'Active' : 'Inactive' }}
+            </div>
+            <div>
+              <strong>Posted date:</strong>
+              {{ formatDate(selectedInternship.createdAt) }}
+            </div>
+          </q-card-section>
+
+          <q-card-actions align="right" class="q-pa-md">
+            <q-btn
+              flat
+              no-caps
+              label="Close"
+              @click="showInternshipDetails = false"
+            />
+            <q-btn
+              outline
+              no-caps
+              color="primary"
+              icon="edit"
+              label="Edit"
+              @click="editSelectedInternship"
+            />
+            <q-btn
+              unelevated
+              no-caps
+              color="negative"
+              icon="delete"
+              label="Delete"
+              @click="deleteSelectedInternship"
+            />
+          </q-card-actions>
+        </template>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useQuasar } from 'quasar'
+import { useRouter } from 'vue-router'
 import DashboardStatCard from '../components/DashboardStatCard.vue'
 import { useDashboardData } from '../composables/useDashboardData.js'
 import { getAuthToken } from '../utils/auth.js'
@@ -230,6 +360,10 @@ import { hasApplicantCv, openApplicantCv } from '../utils/openApplicantCv.js'
 
 const { data, loading, error, reload } = useDashboardData('employer')
 const $q = useQuasar()
+const router = useRouter()
+const selectedInternship = ref(null)
+const showInternshipDetails = ref(false)
+const loadingInternshipDetails = ref(false)
 const cards = computed(() => {
   const stats = data.value?.stats || {}
   return [
@@ -285,6 +419,71 @@ function color(status) {
       pending: 'orange-2'
     }[status] || 'grey-3'
   )
+}
+
+async function openInternshipDetails(internship) {
+  selectedInternship.value = internship
+  showInternshipDetails.value = true
+  loadingInternshipDetails.value = true
+
+  try {
+    const token = getAuthToken()
+    if (!token) {
+      throw new Error('Your session has expired. Please sign in again.')
+    }
+
+    const response = await fetch(
+      `http://localhost:5000/api/internships/${internship._id}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const result = await response.json()
+    if (!response.ok || !result.success || !result.data) {
+      throw new Error(result.message || 'Unable to load internship details.')
+    }
+
+    if (selectedInternship.value?._id === internship._id) {
+      selectedInternship.value = result.data
+    }
+  } catch (error) {
+    if (selectedInternship.value?._id === internship._id) {
+      showInternshipDetails.value = false
+    }
+    $q.notify({
+      type: 'negative',
+      message: error.message || 'Unable to load internship details.',
+      position: 'top'
+    })
+  } finally {
+    if (selectedInternship.value?._id === internship._id) {
+      loadingInternshipDetails.value = false
+    }
+  }
+}
+
+function editSelectedInternship() {
+  const internshipId = selectedInternship.value?._id
+  if (!internshipId) {
+    return
+  }
+
+  showInternshipDetails.value = false
+  router.push({
+    path: '/employers',
+    query: { internshipAction: 'edit', internshipId }
+  })
+}
+
+function deleteSelectedInternship() {
+  const internshipId = selectedInternship.value?._id
+  if (!internshipId) {
+    return
+  }
+
+  showInternshipDetails.value = false
+  router.push({
+    path: '/employers',
+    query: { internshipAction: 'delete', internshipId }
+  })
 }
 
 async function viewApplicantResume(application) {

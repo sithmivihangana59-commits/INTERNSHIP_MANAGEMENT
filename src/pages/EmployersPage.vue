@@ -30,6 +30,138 @@
     <!-- ================================================= -->
 
     <div class="max-width-container q-px-md q-pt-lg">
+      <q-card
+        v-if="isEmployerReviewer"
+        flat
+        class="q-pa-lg bg-white border-light rounded-borders shadow-1 q-mb-lg"
+      >
+        <div class="row items-center justify-between q-mb-md">
+          <div>
+            <div class="text-h6 font-display text-weight-bold text-navy">
+              Existing Internship Posts
+            </div>
+            <div class="text-caption text-grey-6">
+              Manage the internships posted by your account.
+            </div>
+          </div>
+          <q-btn
+            flat
+            dense
+            no-caps
+            color="primary"
+            icon="refresh"
+            label="Refresh"
+            :loading="loadingInternships"
+            @click="loadEmployerInternships"
+          />
+        </div>
+
+        <div v-if="loadingInternships" class="text-center q-py-lg">
+          <q-spinner color="primary" size="36px" />
+          <div class="text-caption text-grey-6 q-mt-sm">
+            Loading your internship posts...
+          </div>
+        </div>
+        <q-banner
+          v-else-if="internshipLoadError"
+          class="bg-red-1 text-negative rounded-borders"
+        >
+          {{ internshipLoadError }}
+          <template #action>
+            <q-btn flat label="Retry" @click="loadEmployerInternships" />
+          </template>
+        </q-banner>
+        <div
+          v-else-if="internships.length === 0"
+          class="text-center text-grey-6 q-py-lg"
+        >
+          You have not posted any internships yet.
+        </div>
+        <div v-else class="q-gutter-y-md">
+          <q-card
+            v-for="internship in internships"
+            :key="internship._id"
+            flat
+            bordered
+            class="rounded-borders cursor-pointer"
+            role="button"
+            tabindex="0"
+            @click="openInternshipDetails(internship)"
+            @keydown.enter="openInternshipDetails(internship)"
+            @keydown.space.prevent="openInternshipDetails(internship)"
+          >
+            <q-card-section>
+              <div class="row items-start justify-between q-col-gutter-md">
+                <div class="col">
+                  <div class="text-subtitle1 text-weight-bold text-navy">
+                    {{ internship.title }}
+                  </div>
+                  <div class="text-body2 text-grey-7">
+                    {{ internship.company?.name || 'Company unavailable' }}
+                    <span class="q-mx-xs">·</span>
+                    {{
+                      internship.category?.name || 'Specialization unavailable'
+                    }}
+                  </div>
+                  <div
+                    class="row q-gutter-x-md q-gutter-y-xs q-mt-xs text-caption text-grey-7"
+                  >
+                    <span>{{
+                      internship.location || 'Location not specified'
+                    }}</span>
+                    <span>{{
+                      internship.workMode || 'Work mode not specified'
+                    }}</span>
+                    <span>{{
+                      internship.duration || 'Duration not specified'
+                    }}</span>
+                    <span>
+                      {{
+                        internship.salary?.amount != null
+                          ? `${internship.salary.currency || 'LKR'} ${Number(internship.salary.amount).toLocaleString()} / ${internship.salary.period || 'month'}`
+                          : 'Stipend not specified'
+                      }}
+                    </span>
+                  </div>
+                </div>
+                <div class="col-auto column items-end q-gutter-y-sm">
+                  <q-badge
+                    :color="internship.isActive ? 'green-1' : 'grey-3'"
+                    :text-color="internship.isActive ? 'green-9' : 'grey-8'"
+                    :label="internship.isActive ? 'Active' : 'Inactive'"
+                  />
+                  <div class="row q-gutter-x-sm">
+                    <q-btn
+                      outline
+                      dense
+                      no-caps
+                      color="primary"
+                      icon="edit"
+                      label="Edit"
+                      :disable="
+                        loadingPostOptions || Boolean(deletingInternshipId)
+                      "
+                      @click.stop="editInternship(internship)"
+                    />
+                    <q-btn
+                      outline
+                      dense
+                      no-caps
+                      color="negative"
+                      icon="delete"
+                      label="Delete"
+                      :loading="deletingInternshipId === internship._id"
+                      :disable="Boolean(deletingInternshipId)"
+                      @click.stop="requestDeleteInternship(internship)"
+                    />
+                  </div>
+                </div>
+              </div>
+            </q-card-section>
+          </q-card>
+        </div>
+      </q-card>
+
       <div class="row q-col-gutter-lg">
         <!-- ================================================= -->
         <!-- LEFT : POST INTERNSHIP -->
@@ -37,6 +169,7 @@
 
         <div class="col-12 col-md-8">
           <q-card
+            id="internship-form"
             flat
             class="q-pa-lg bg-white border-light rounded-borders shadow-1"
           >
@@ -49,11 +182,19 @@
 
               <div>
                 <div class="text-h6 font-display text-weight-bold text-navy">
-                  Create an internship
+                  {{
+                    editingInternshipId
+                      ? 'Edit Internship'
+                      : 'Create an internship'
+                  }}
                 </div>
 
                 <div class="text-caption text-grey-6">
-                  Add a few details to publish your opening.
+                  {{
+                    editingInternshipId
+                      ? 'Update the details for this internship post.'
+                      : 'Add a few details to publish your opening.'
+                  }}
                 </div>
               </div>
             </div>
@@ -66,12 +207,19 @@
 
               <div class="row q-col-gutter-sm">
                 <div class="col-12 col-sm-6">
-                  <q-input
+                  <q-select
                     v-model="form.company"
                     dense
                     outlined
+                    :options="companyOptions"
+                    option-label="name"
+                    option-value="_id"
+                    emit-value
+                    map-options
+                    :loading="loadingPostOptions"
+                    :disable="loadingPostOptions || companyOptions.length === 0"
                     label="Company Name"
-                    placeholder="e.g. Sysco LABS"
+                    placeholder="Select a registered company"
                     required
                   />
                 </div>
@@ -201,10 +349,23 @@
                   color="primary"
                   type="submit"
                   no-caps
-                  label="Publish Internship Opening"
-                  icon-right="rocket_launch"
+                  :label="
+                    editingInternshipId
+                      ? 'Update Internship'
+                      : 'Publish Internship Opening'
+                  "
+                  :icon-right="editingInternshipId ? 'save' : 'rocket_launch'"
                   class="full-width text-weight-bold q-py-sm rounded-borders shadow-1"
                   :loading="postingJob"
+                />
+                <q-btn
+                  v-if="editingInternshipId"
+                  flat
+                  no-caps
+                  label="Cancel edit"
+                  class="full-width q-mt-sm"
+                  :disable="postingJob"
+                  @click="cancelEdit"
                 />
               </div>
             </q-form>
@@ -643,9 +804,7 @@
                             ? 'View CV / Resume'
                             : 'CV not available'
                         "
-                        :disable="
-                          !hasApplicantCv(application)
-                        "
+                        :disable="!hasApplicantCv(application)"
                         @click="openResume(application)"
                       />
                       <q-btn
@@ -655,9 +814,7 @@
                         no-caps
                         :outline="option.value !== 'rejected'"
                         :color="
-                          option.value === 'rejected'
-                            ? 'negative'
-                            : 'primary'
+                          option.value === 'rejected' ? 'negative' : 'primary'
                         "
                         :icon="
                           option.value === 'interview'
@@ -714,7 +871,9 @@
                 }}
               </div>
               <div class="text-caption text-grey-6">
-                {{ selectedApplication?.applicant?.email || 'Email not available' }}
+                {{
+                  selectedApplication?.applicant?.email || 'Email not available'
+                }}
               </div>
             </div>
           </div>
@@ -722,7 +881,10 @@
 
         <q-separator />
 
-        <q-card-section v-if="selectedApplication?.applicant" class="q-gutter-y-sm">
+        <q-card-section
+          v-if="selectedApplication?.applicant"
+          class="q-gutter-y-sm"
+        >
           <div v-if="selectedApplication.applicant.phone">
             <strong>Phone:</strong> {{ selectedApplication.applicant.phone }}
           </div>
@@ -852,30 +1014,173 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="showInternshipDetails">
+      <q-card v-if="selectedInternship" style="width: 600px; max-width: 95vw">
+        <q-card-section>
+          <div class="text-h6 text-weight-bold text-navy">
+            {{ selectedInternship.title }}
+          </div>
+          <div class="text-body2 text-grey-7 q-mt-xs">
+            {{ selectedInternship.company?.name || 'Company unavailable' }}
+            <span class="q-mx-xs">·</span>
+            {{
+              selectedInternship.category?.name || 'Specialization unavailable'
+            }}
+          </div>
+        </q-card-section>
+
+        <q-separator />
+
+        <q-card-section class="q-gutter-y-sm">
+          <div>
+            <strong>Location:</strong>
+            {{ selectedInternship.location || 'Not specified' }}
+          </div>
+          <div>
+            <strong>Work mode:</strong>
+            {{ selectedInternship.workMode || 'Not specified' }}
+          </div>
+          <div>
+            <strong>Duration:</strong>
+            {{ selectedInternship.duration || 'Not specified' }}
+          </div>
+          <div>
+            <strong>Salary/Stipend:</strong>
+            {{
+              selectedInternship.salary?.amount != null
+                ? `${selectedInternship.salary.currency || 'LKR'} ${Number(selectedInternship.salary.amount).toLocaleString()} / ${selectedInternship.salary.period || 'month'}`
+                : 'Not specified'
+            }}
+          </div>
+          <div>
+            <strong>Skills:</strong>
+            {{
+              selectedInternship.skills?.length
+                ? selectedInternship.skills.join(', ')
+                : 'Not specified'
+            }}
+          </div>
+          <div v-if="selectedInternship.requirements?.length">
+            <strong>Requirements:</strong>
+            <ul class="q-mt-xs q-mb-none">
+              <li
+                v-for="(requirement, index) in selectedInternship.requirements"
+                :key="`${index}-${requirement}`"
+              >
+                {{ requirement }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="selectedInternship.responsibilities?.length">
+            <strong>Responsibilities:</strong>
+            <ul class="q-mt-xs q-mb-none">
+              <li
+                v-for="(
+                  responsibility, index
+                ) in selectedInternship.responsibilities"
+                :key="`${index}-${responsibility}`"
+              >
+                {{ responsibility }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="selectedInternship.applicationDeadline">
+            <strong>Application deadline:</strong>
+            {{ formatDate(selectedInternship.applicationDeadline) }}
+          </div>
+          <div>
+            <strong>Description:</strong>
+            <div class="q-mt-xs">
+              {{ selectedInternship.description || 'Not specified' }}
+            </div>
+          </div>
+          <div>
+            <strong>Status:</strong>
+            {{ selectedInternship.isActive ? 'Active' : 'Inactive' }}
+          </div>
+          <div>
+            <strong>Posted date:</strong>
+            {{ formatDate(selectedInternship.createdAt) }}
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right" class="q-pa-md">
+          <q-btn
+            flat
+            no-caps
+            label="Close"
+            @click="showInternshipDetails = false"
+          />
+          <q-btn
+            outline
+            no-caps
+            color="primary"
+            icon="edit"
+            label="Edit"
+            :disable="loadingPostOptions || Boolean(deletingInternshipId)"
+            @click="editSelectedInternship"
+          />
+          <q-btn
+            unelevated
+            no-caps
+            color="negative"
+            icon="delete"
+            label="Delete"
+            :disable="Boolean(deletingInternshipId)"
+            @click="deleteSelectedInternshipFromDetails"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="showDeleteDialog">
+      <q-card>
+        <q-card-section>
+          <div class="text-h6">Delete internship</div>
+        </q-card-section>
+        <q-card-section class="q-pt-none">
+          Are you sure you want to delete
+          <strong>{{ internshipToDelete?.title }}</strong
+          >?
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn
+            flat
+            no-caps
+            label="Cancel"
+            :disable="Boolean(deletingInternshipId)"
+            @click="showDeleteDialog = false"
+          />
+          <q-btn
+            unelevated
+            no-caps
+            color="negative"
+            label="Delete"
+            :loading="Boolean(deletingInternshipId)"
+            @click="deleteSelectedInternship"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
 <script setup>
 import { getAuthToken as readAuthToken, getAuthUser } from '../utils/auth.js'
-import {
-  hasApplicantCv,
-  openApplicantCv
-} from '../utils/openApplicantCv.js'
+import { hasApplicantCv, openApplicantCv } from '../utils/openApplicantCv.js'
 
 import { ref, onMounted } from 'vue'
 
-import { useRouter } from 'vue-router'
-
 import { useQuasar } from 'quasar'
-
-import { INITIAL_JOBS } from '@/data/jobsData'
+import { useRoute, useRouter } from 'vue-router'
 
 // =====================================================
-// QUASAR / ROUTER
+// QUASAR
 // =====================================================
 
 const $q = useQuasar()
-
+const route = useRoute()
 const router = useRouter()
 
 // =====================================================
@@ -889,27 +1194,24 @@ const isEmployerReviewer = getAuthUser()?.role === 'employer'
 // CATEGORY OPTIONS
 // =====================================================
 
-const categoryOptions = [
-  {
-    label: 'Software & Cloud Engineering',
-    value: 'software'
-  },
-
-  {
-    label: 'AI & Data Science',
-    value: 'data'
-  },
-
-  {
-    label: 'UI/UX Product Design',
-    value: 'design'
-  },
-
-  {
-    label: 'Business & Finance',
-    value: 'business'
-  }
+const companyOptions = ref([])
+const categoryOptions = ref([])
+const employerCategoryLabels = [
+  { name: 'Software & Cloud', label: 'Software & Cloud Engineering' },
+  { name: 'AI & Data Science', label: 'AI & Data Science' },
+  { name: 'UI/UX Design', label: 'UI/UX Product Design' },
+  { name: 'Business & Finance', label: 'Business & Finance' }
 ]
+const internships = ref([])
+const selectedInternship = ref(null)
+const showInternshipDetails = ref(false)
+const loadingPostOptions = ref(false)
+const loadingInternships = ref(true)
+const internshipLoadError = ref('')
+const editingInternshipId = ref('')
+const deletingInternshipId = ref('')
+const internshipToDelete = ref(null)
+const showDeleteDialog = ref(false)
 
 // =====================================================
 // POST JOB FORM
@@ -922,7 +1224,7 @@ const form = ref({
 
   title: '',
 
-  category: 'software',
+  category: '',
 
   mode: 'Hybrid',
 
@@ -1012,69 +1314,347 @@ function getAuthToken() {
 }
 
 // =====================================================
-// GET CURRENT USER
+// INTERNSHIP POSTS
 // =====================================================
 
-// =====================================================
-// POST INTERNSHIP
-// =====================================================
+async function loadPostOptions() {
+  loadingPostOptions.value = true
+  try {
+    const [companiesResponse, categoriesResponse] = await Promise.all([
+      fetch(`${API_BASE_URL}/companies?limit=100`),
+      fetch(`${API_BASE_URL}/categories`)
+    ])
+    const [companiesResult, categoriesResult] = await Promise.all([
+      companiesResponse.json(),
+      categoriesResponse.json()
+    ])
 
-function submitJobPost() {
-  const newJob = {
-    id: `custom-${Date.now()}`,
+    if (!companiesResponse.ok || !companiesResult.success) {
+      throw new Error(companiesResult.message || 'Unable to load companies.')
+    }
+    if (!categoriesResponse.ok || !categoriesResult.success) {
+      throw new Error(categoriesResult.message || 'Unable to load categories.')
+    }
 
-    company: form.value.company,
+    if (!Array.isArray(companiesResult.data)) {
+      throw new Error('The companies response has an invalid format.')
+    }
 
-    logoText: form.value.company.charAt(0).toUpperCase(),
-
-    logoBg: 'primary',
-
-    title: form.value.title,
-
-    location: `${form.value.location} • ${form.value.mode}`,
-
-    category: form.value.category,
-
-    stipend: form.value.stipend,
-
-    stipendVal: 80000,
-
-    duration: form.value.duration,
-
-    mode: form.value.mode,
-
-    deadline: 'Closes in 14 days',
-
-    isBookmarked: false,
-
-    skills: form.value.skills.split(',').map(s => s.trim()),
-
-    description: form.value.description,
-
-    requirements: [
-      'Undergraduate in relevant field.',
-
-      'Solid knowledge in listed skills.',
-
-      'Strong communication and problem solving.'
+    const remainingCompanyPages = await Promise.all(
+      Array.from(
+        { length: Math.max(0, Number(companiesResult.pages) - 1) },
+        async (_, index) => {
+          const response = await fetch(
+            `${API_BASE_URL}/companies?page=${index + 2}&limit=100`
+          )
+          const result = await response.json()
+          if (!response.ok || !result.success || !Array.isArray(result.data)) {
+            throw new Error(result.message || 'Unable to load companies.')
+          }
+          return result.data
+        }
+      )
+    )
+    companyOptions.value = [
+      ...companiesResult.data,
+      ...remainingCompanyPages.flat()
     ]
+    categoryOptions.value = employerCategoryLabels.flatMap(
+      ({ name, label }) => {
+        const category = categoriesResult.data.find(item => item.name === name)
+        return category ? [{ label, value: category._id }] : []
+      }
+    )
+
+    if (!companyOptions.value.length || !categoryOptions.value.length) {
+      throw new Error(
+        'Companies and categories must be available before publishing an internship.'
+      )
+    }
+
+    if (
+      !categoryOptions.value.some(
+        option => option.value === form.value.category
+      )
+    ) {
+      form.value.category = categoryOptions.value[0]?.value || ''
+    }
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: error.message || 'Unable to load internship form options.',
+      position: 'top',
+      timeout: 5000
+    })
+  } finally {
+    loadingPostOptions.value = false
+  }
+}
+
+async function submitJobPost() {
+  postingJob.value = true
+  try {
+    const token = getAuthToken()
+    if (!token) {
+      throw new Error('Please sign in to manage internships.')
+    }
+
+    if (
+      !companyOptions.value.some(company => company._id === form.value.company)
+    ) {
+      throw new Error('Choose a company that is registered in the system.')
+    }
+
+    const stipendAmount = Number(
+      String(form.value.stipend).replace(/[^\d.-]/g, '')
+    )
+    if (!Number.isFinite(stipendAmount) || stipendAmount < 0) {
+      throw new Error('Enter a valid monthly stipend.')
+    }
+
+    const payload = {
+      title: form.value.title.trim(),
+      company: form.value.company,
+      category: form.value.category,
+      description: form.value.description.trim(),
+      skills: form.value.skills
+        .split(',')
+        .map(skill => skill.trim())
+        .filter(Boolean),
+      salary: {
+        amount: stipendAmount,
+        currency: 'LKR',
+        period: 'month'
+      },
+      duration: form.value.duration,
+      workMode: form.value.mode === '100% Remote' ? 'Remote' : form.value.mode,
+      location: form.value.location.trim()
+    }
+
+    const isEditing = Boolean(editingInternshipId.value)
+    const response = await fetch(
+      isEditing
+        ? `${API_BASE_URL}/internships/${editingInternshipId.value}`
+        : `${API_BASE_URL}/internships`,
+      {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      }
+    )
+    const result = await response.json()
+
+    if (!response.ok || !result.success || !result.data?._id) {
+      throw new Error(
+        result.message ||
+          `Unable to ${isEditing ? 'update' : 'publish'} this internship.`
+      )
+    }
+
+    await loadEmployerInternships()
+    resetInternshipForm()
+    $q.notify({
+      type: 'positive',
+      message: isEditing
+        ? `Internship "${result.data.title}" updated successfully!`
+        : `Internship for "${result.data.title}" published successfully!`,
+      icon: 'check_circle',
+      timeout: 3500
+    })
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: error.message || 'Unable to save this internship.',
+      position: 'top',
+      timeout: 5000
+    })
+  } finally {
+    postingJob.value = false
+  }
+}
+
+async function loadEmployerInternships() {
+  loadingInternships.value = true
+  internshipLoadError.value = ''
+  try {
+    const token = getAuthToken()
+    if (!token) {
+      throw new Error('Please sign in to view your internship posts.')
+    }
+
+    const response = await fetch(`${API_BASE_URL}/internships/mine`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    const result = await response.json()
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || 'Unable to load your internship posts.')
+    }
+    internships.value = result.data
+  } catch (error) {
+    internshipLoadError.value =
+      error.message || 'Unable to load your internship posts.'
+  } finally {
+    loadingInternships.value = false
+  }
+}
+
+function editInternship(internship) {
+  editingInternshipId.value = internship._id
+  form.value = {
+    company: internship.company?._id || internship.company || '',
+    email: getAuthUser()?.email || '',
+    title: internship.title || '',
+    category: internship.category?._id || internship.category || '',
+    mode:
+      internship.workMode === 'Remote'
+        ? '100% Remote'
+        : internship.workMode || 'Hybrid',
+    location: internship.location || '',
+    duration: internship.duration || '',
+    stipend: String(internship.salary?.amount ?? ''),
+    skills: Array.isArray(internship.skills)
+      ? internship.skills.join(', ')
+      : '',
+    description: internship.description || ''
+  }
+  document.getElementById('internship-form')?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start'
+  })
+}
+
+function openInternshipDetails(internship) {
+  selectedInternship.value = internship
+  showInternshipDetails.value = true
+}
+
+function editSelectedInternship() {
+  if (!selectedInternship.value) {
+    return
   }
 
-  INITIAL_JOBS.unshift(newJob)
+  const internship = selectedInternship.value
+  showInternshipDetails.value = false
+  editInternship(internship)
+}
 
-  $q.notify({
-    type: 'positive',
+function deleteSelectedInternshipFromDetails() {
+  if (!selectedInternship.value) {
+    return
+  }
 
-    message: `🎉 Internship for "${form.value.title}" published successfully!`,
+  const internship = selectedInternship.value
+  showInternshipDetails.value = false
+  requestDeleteInternship(internship)
+}
 
-    icon: 'check_circle',
+async function handleDashboardInternshipAction() {
+  const action = route.query.internshipAction
+  const internshipId = route.query.internshipId
+  if (
+    !['edit', 'delete'].includes(action) ||
+    typeof internshipId !== 'string'
+  ) {
+    return
+  }
 
-    timeout: 3500
-  })
+  const internship = internships.value.find(item => item._id === internshipId)
+  if (internship) {
+    if (action === 'edit') {
+      editInternship(internship)
+    } else {
+      requestDeleteInternship(internship)
+    }
+  } else {
+    $q.notify({
+      type: 'negative',
+      message: internshipLoadError.value || 'Internship post not found.',
+      position: 'top'
+    })
+  }
 
-  setTimeout(() => {
-    router.push('/internships')
-  }, 1200)
+  const query = { ...route.query }
+  delete query.internshipAction
+  delete query.internshipId
+  await router.replace({ path: route.path, query, hash: route.hash })
+}
+
+function resetInternshipForm() {
+  editingInternshipId.value = ''
+  form.value = {
+    company: '',
+    email: '',
+    title: '',
+    category: categoryOptions.value[0]?.value || '',
+    mode: 'Hybrid',
+    location: 'Colombo, Sri Lanka',
+    duration: '6 Months',
+    stipend: 'LKR 80,000 / mo',
+    skills: 'React, Node.js, SQL',
+    description: ''
+  }
+}
+
+function cancelEdit() {
+  if (!postingJob.value) {
+    resetInternshipForm()
+  }
+}
+
+function requestDeleteInternship(internship) {
+  internshipToDelete.value = internship
+  showDeleteDialog.value = true
+}
+
+async function deleteSelectedInternship() {
+  if (!internshipToDelete.value) {
+    return
+  }
+
+  const internshipId = internshipToDelete.value._id
+  deletingInternshipId.value = internshipId
+  try {
+    const token = getAuthToken()
+    if (!token) {
+      throw new Error('Please sign in to delete this internship.')
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/internships/${internshipId}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    )
+    const result = await response.json()
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || 'Unable to delete this internship.')
+    }
+
+    showDeleteDialog.value = false
+    internshipToDelete.value = null
+    if (editingInternshipId.value === internshipId) {
+      resetInternshipForm()
+    }
+    await loadEmployerInternships()
+    $q.notify({
+      type: 'positive',
+      message: 'Internship deleted successfully.',
+      icon: 'check_circle'
+    })
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: error.message || 'Unable to delete this internship.',
+      position: 'top',
+      timeout: 5000
+    })
+  } finally {
+    deletingInternshipId.value = ''
+  }
 }
 
 // =====================================================
@@ -1120,8 +1700,7 @@ function viewApplicantProfile(application) {
 
 function updateApplicationStatus(
   application,
-  status =
-    availableStatusOptions(application)[0]?.value || application.status
+  status = availableStatusOptions(application)[0]?.value || application.status
 ) {
   selectedApplication.value = application
   statusForm.value = {
@@ -1423,8 +2002,15 @@ async function openResume(application) {
 // ON MOUNT
 // =====================================================
 
-onMounted(() => {
+onMounted(async () => {
   loadEmployerApplications()
+  if (isEmployerReviewer) {
+    await loadEmployerInternships()
+  }
+  loadPostOptions()
+  if (isEmployerReviewer) {
+    await handleDashboardInternshipAction()
+  }
 })
 </script>
 
